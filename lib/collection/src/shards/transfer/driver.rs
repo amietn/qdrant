@@ -48,14 +48,14 @@ pub async fn transfer_shard(
     // Prepare the remote for receiving the shard, waits for the correct state on the remote
     remote_shard.initiate_transfer().await?;
 
-    match transfer_config.method {
+    match transfer_config.method.unwrap_or(ShardTransferMethod::WalDelta) {
         // Transfer shard record in batches
-        Some(ShardTransferMethod::StreamRecords) => {
+        ShardTransferMethod::StreamRecords => {
             transfer_stream_records(shard_holder.clone(), shard_id, remote_shard).await?;
         }
 
         // Transfer shard as snapshot
-        Some(ShardTransferMethod::Snapshot) => {
+        ShardTransferMethod::Snapshot => {
             transfer_snapshot(
                 transfer_config,
                 shard_holder.clone(),
@@ -71,7 +71,7 @@ pub async fn transfer_shard(
         }
 
         // Attempt to transfer shard diff
-        None => {
+        ShardTransferMethod::WalDelta => {
             transfer_wal_delta(
                 transfer_config,
                 shard_holder.clone(),
