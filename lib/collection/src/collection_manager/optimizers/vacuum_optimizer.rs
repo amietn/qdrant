@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
-use segment::common::operation_time_statistics::{
-    OperationDurationStatistics, OperationDurationsAggregator,
-};
+use segment::common::operation_time_statistics::OperationDurationsAggregator;
 use segment::entry::entry_point::SegmentEntry;
 use segment::index::VectorIndex;
 use segment::types::{HnswConfig, QuantizationConfig, SegmentType};
@@ -202,10 +200,6 @@ impl SegmentOptimizer for VacuumOptimizer {
             None => vec![],
             Some((segment_id, _segment)) => vec![segment_id],
         }
-    }
-
-    fn get_telemetry_data(&self) -> OperationDurationStatistics {
-        self.get_telemetry_counter().lock().get_statistics()
     }
 
     fn get_telemetry_counter(&self) -> &Mutex<OperationDurationsAggregator> {

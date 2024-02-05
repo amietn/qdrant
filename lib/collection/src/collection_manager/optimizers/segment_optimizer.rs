@@ -8,7 +8,7 @@ use itertools::Itertools;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use segment::common::operation_error::check_process_stopped;
 use segment::common::operation_time_statistics::{
-    OperationDurationStatistics, OperationDurationsAggregator, ScopeDurationMeasurer,
+    OperationDurationsAggregator, ScopeDurationMeasurer,
 };
 use segment::common::version::StorageVersion;
 use segment::entry::entry_point::SegmentEntry;
@@ -74,8 +74,6 @@ pub trait SegmentOptimizer {
         segments: LockedSegmentHolder,
         excluded_ids: &HashSet<SegmentId>,
     ) -> Vec<SegmentId>;
-
-    fn get_telemetry_data(&self) -> OperationDurationStatistics;
 
     fn get_telemetry_counter(&self) -> &Mutex<OperationDurationsAggregator>;
 

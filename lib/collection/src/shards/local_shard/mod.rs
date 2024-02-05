@@ -810,7 +810,7 @@ impl LocalShard {
         let optimizations = self
             .optimizers
             .iter()
-            .map(|optimizer| optimizer.get_telemetry_data())
+            .map(|optimizer| optimizer.get_telemetry_counter().lock().get_statistics())
             .fold(Default::default(), |acc, x| acc + x);
 
         LocalShardTelemetry {
