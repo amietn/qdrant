@@ -77,7 +77,7 @@ pub trait SegmentOptimizer {
 
     fn get_telemetry_data(&self) -> OperationDurationStatistics;
 
-    fn get_telemetry_counter(&self) -> Arc<Mutex<OperationDurationsAggregator>>;
+    fn get_telemetry_counter(&self) -> &Mutex<OperationDurationsAggregator>;
 
     /// Build temp segment
     fn temp_segment(&self, save_version: bool) -> CollectionResult<LockedSegment> {
@@ -436,7 +436,7 @@ pub trait SegmentOptimizer {
     ) -> CollectionResult<bool> {
         check_process_stopped(stopped)?;
 
-        let mut timer = ScopeDurationMeasurer::new(&self.get_telemetry_counter());
+        let mut timer = ScopeDurationMeasurer::new(self.get_telemetry_counter());
         timer.set_success(false);
 
         // On the one hand - we want to check consistently if all provided segments are

@@ -276,8 +276,8 @@ impl SegmentOptimizer for IndexingOptimizer {
         self.get_telemetry_counter().lock().get_statistics()
     }
 
-    fn get_telemetry_counter(&self) -> Arc<Mutex<OperationDurationsAggregator>> {
-        self.telemetry_durations_aggregator.clone()
+    fn get_telemetry_counter(&self) -> &Mutex<OperationDurationsAggregator> {
+        &self.telemetry_durations_aggregator
     }
 }
 
