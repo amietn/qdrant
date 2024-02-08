@@ -201,6 +201,7 @@ impl MetricsProvider for WebApiTelemetry {
             let Some((method, endpoint)) = endpoint.split_once(' ') else {
                 continue;
             };
+            // Endpoint must be whitelisted
             if REST_ENDPOINT_WHITELIST.binary_search(&endpoint).is_err() {
                 continue;
             }
@@ -224,9 +225,10 @@ impl MetricsProvider for GrpcTelemetry {
     fn add_metrics(&self, metrics: &mut Vec<MetricFamily>) {
         let mut builder = OperationDurationMetricsBuilder::default();
         for (endpoint, stats) in &self.responses {
+            // Endpoint must be whitelisted
             if GRPC_ENDPOINT_WHITELIST
                 .binary_search(&endpoint.as_str())
-                .is_ok()
+                .is_err()
             {
                 continue;
             }
@@ -376,7 +378,7 @@ fn gauge(value: f64, labels: &[(&str, &str)]) -> Metric {
 fn histogram(
     sample_count: u64,
     sample_sum: f64,
-    bucktes: &[(f64, u64)],
+    buckets: &[(f64, u64)],
     labels: &[(&str, &str)],
 ) -> Metric {
     let mut metric = Metric::default();
@@ -386,7 +388,7 @@ fn histogram(
         histogram.set_sample_count(sample_count);
         histogram.set_sample_sum(sample_sum);
         histogram.set_bucket(
-            bucktes
+            buckets
                 .iter()
                 .map(|&(upper_bound, cumulative_count)| {
                     let mut bucket = prometheus::proto::Bucket::default();
