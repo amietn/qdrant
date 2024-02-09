@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use common::types::PointOffsetType;
 use serde::{Deserialize, Serialize};
 
-use super::posting_list::{CompressedPostingList, CompressedPostingVisitor, PostingList};
+use super::posting_list::{CompressedPostingList, PostingList};
 use super::postings_iterator::{
     intersect_compressed_postings_iterator, intersect_postings_iterator,
 };
@@ -469,8 +469,7 @@ impl ImmutableInvertedIndex {
             // unwrap crash safety: all tokens exist in the vocabulary if it passes the above check
             .all(|query_token| {
                 if let Some(posting_list) = &self.postings[query_token.unwrap() as usize] {
-                    let mut postings_visitor = CompressedPostingVisitor::new(posting_list);
-                    postings_visitor.contains(&point_id)
+                    posting_list.contains(&point_id)
                 } else {
                     false
                 }

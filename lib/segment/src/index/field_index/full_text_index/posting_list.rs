@@ -47,7 +47,8 @@ impl PostingList {
 
 #[derive(Clone, Debug, Default)]
 pub struct CompressedPostingList {
-    len: u32,
+    len: usize,
+    last_doc_id: PointOffsetType,
     data: Box<[u8]>,
     chunks: Box<[CompressedPostingChunk]>,
 }
@@ -63,10 +64,11 @@ impl CompressedPostingList {
         if posting_list.list.is_empty() {
             return Self::default();
         }
+        let len = posting_list.len();
+        let last_doc_id = *posting_list.list.last().unwrap();
 
         let bitpacker = bitpacking::BitPacker4x::new();
         posting_list.list.sort_unstable();
-        let len = posting_list.len() as u32;
 
         let last = *posting_list.list.last().unwrap();
         while posting_list.list.len() % bitpacking::BitPacker4x::BLOCK_LEN != 0 {
@@ -126,8 +128,33 @@ impl CompressedPostingList {
 
         Self {
             len,
+            last_doc_id,
             data: data.into_boxed_slice(),
             chunks: chunks.into_boxed_slice(),
+        }
+    }
+
+    pub fn contains(&self, val: &PointOffsetType) -> bool {
+        if !self.is_in_postings_range(*val) {
+            return false;
+        }
+
+        // find the chunk that may contain the value and check if the value is in the chunk
+        let chunk_index = self.find_chunk(val, None);
+        if let Some(chunk_index) = chunk_index {
+            if self.chunks[chunk_index].initial == *val {
+                return true;
+            }
+
+            let mut decompressed = [0u32; bitpacking::BitPacker4x::BLOCK_LEN];
+            self.decompress_chunk(
+                &bitpacking::BitPacker4x::new(),
+                chunk_index,
+                &mut decompressed,
+            );
+            decompressed.binary_search(val).is_ok()
+        } else {
+            false
         }
     }
 
@@ -138,26 +165,18 @@ impl CompressedPostingList {
     }
 
     pub fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 
     pub fn iter(&self) -> impl Iterator<Item = PointOffsetType> + '_ {
         let bitpacker = bitpacking::BitPacker4x::new();
         (0..self.chunks.len())
             .flat_map(move |chunk_index| {
-                let chunk = &self.chunks[chunk_index];
-                let chunk_size = Self::get_chunk_size(&self.chunks, &self.data, chunk_index);
-                let chunk_bits = (chunk_size * 8) / bitpacking::BitPacker4x::BLOCK_LEN;
                 let mut decompressed = [0u32; bitpacking::BitPacker4x::BLOCK_LEN];
-                bitpacker.decompress_sorted(
-                    chunk.initial,
-                    &self.data[chunk.offset as usize..chunk.offset as usize + chunk_size],
-                    &mut decompressed,
-                    chunk_bits as u8,
-                );
+                self.decompress_chunk(&bitpacker, chunk_index, &mut decompressed);
                 decompressed.into_iter()
             })
-            .take(self.len as usize)
+            .take(self.len)
     }
 
     fn get_chunk_size(chunks: &[CompressedPostingChunk], data: &[u8], chunk_index: usize) -> usize {
@@ -168,79 +187,14 @@ impl CompressedPostingList {
             data.len() - chunks[chunk_index].offset as usize
         }
     }
-}
 
-pub struct CompressedPostingVisitor<'a> {
-    bitpacker: bitpacking::BitPacker4x,
-    postings: &'a CompressedPostingList,
-    decompressed_chunk: [PointOffsetType; bitpacking::BitPacker4x::BLOCK_LEN],
-    decompressed_chunk_idx: Option<usize>,
-    min_decompressed: Option<PointOffsetType>,
-    max_decompressed: PointOffsetType,
-}
-
-impl<'a> CompressedPostingVisitor<'a> {
-    pub fn new(postings: &'a CompressedPostingList) -> CompressedPostingVisitor<'a> {
-        CompressedPostingVisitor {
-            bitpacker: bitpacking::BitPacker4x::new(),
-            postings,
-            decompressed_chunk: [0; bitpacking::BitPacker4x::BLOCK_LEN],
-            decompressed_chunk_idx: None,
-            min_decompressed: None,
-            max_decompressed: PointOffsetType::MAX,
-        }
-    }
-
-    pub fn contains(&mut self, val: &PointOffsetType) -> bool {
-        // check if current decompressed chunks range contains the value
-        if let Some(min_decompressed) = self.min_decompressed {
-            if *val >= min_decompressed && *val <= self.max_decompressed {
-                // check if the value is in the decompressed chunk
-                return self.contains_in_decompressed(val);
-            }
-        }
-
-        // decompressed chunk is not in the range, so we need to decompress another chunk
-        // first, check if there is a chunk that contains the value
-        let chunk_index = match self.find_chunk(val) {
-            Some(idx) => idx,
-            None => return false,
-        };
-        // the value is the initial value of the chunk, so we don't need to decompress the chunk
-        if self.postings.chunks[chunk_index].initial == *val {
-            return true;
-        }
-
-        // second, decompress the chunk and check if the value is in the decompressed chunk
-        let chunk_size = CompressedPostingList::get_chunk_size(
-            &self.postings.chunks,
-            &self.postings.data,
-            chunk_index,
-        );
-        let chunk_bits = (chunk_size * 8) / bitpacking::BitPacker4x::BLOCK_LEN;
-        let chunk = &self.postings.chunks[chunk_index];
-        self.bitpacker.decompress_sorted(
-            chunk.initial,
-            &self.postings.data[chunk.offset as usize..chunk.offset as usize + chunk_size],
-            &mut self.decompressed_chunk,
-            chunk_bits as u8,
-        );
-        // update state
-        self.decompressed_chunk_idx = Some(chunk_index);
-        self.min_decompressed = Some(self.decompressed_chunk[0]);
-        self.max_decompressed = self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1];
-
-        self.contains_in_decompressed(val)
-    }
-
-    fn find_chunk(&self, val: &PointOffsetType) -> Option<usize> {
-        let start_chunk = if let Some(idx) = self.decompressed_chunk_idx {
-            idx
-        } else {
-            0
-        };
-        match self.postings.chunks[start_chunk..].binary_search_by(|chunk| chunk.initial.cmp(val)) {
+    fn find_chunk(&self, doc_id: &PointOffsetType, start_chunk: Option<usize>) -> Option<usize> {
+        let start_chunk = if let Some(idx) = start_chunk { idx } else { 0 };
+        match self.chunks[start_chunk..].binary_search_by(|chunk| chunk.initial.cmp(doc_id)) {
+            // doc_id is the initial value of the chunk with index idx
             Ok(idx) => Some(idx),
+            // chunk idx has larger initial value than doc_id
+            // so we need the previous chunk
             Err(idx) => {
                 if idx > 0 {
                     Some(idx - 1)
@@ -251,12 +205,86 @@ impl<'a> CompressedPostingVisitor<'a> {
         }
     }
 
-    fn contains_in_decompressed(&self, doc_id: &PointOffsetType) -> bool {
-        // unwrap is safe here, because we checked if the value is in the range
-        if *doc_id == self.min_decompressed.unwrap() || *doc_id == self.max_decompressed {
+    fn is_in_postings_range(&self, val: PointOffsetType) -> bool {
+        self.chunks.len() > 0 && val >= self.chunks[0].initial && val <= self.last_doc_id
+    }
+
+    fn decompress_chunk(
+        &self,
+        bitpacker: &bitpacking::BitPacker4x,
+        chunk_index: usize,
+        decompressed: &mut [PointOffsetType],
+    ) {
+        let chunk = &self.chunks[chunk_index];
+        let chunk_size = Self::get_chunk_size(&self.chunks, &self.data, chunk_index);
+        let chunk_bits = (chunk_size * 8) / bitpacking::BitPacker4x::BLOCK_LEN;
+        bitpacker.decompress_sorted(
+            chunk.initial,
+            &self.data[chunk.offset as usize..chunk.offset as usize + chunk_size],
+            decompressed,
+            chunk_bits as u8,
+        );
+    }
+}
+
+pub struct CompressedPostingVisitor<'a> {
+    bitpacker: bitpacking::BitPacker4x,
+    postings: &'a CompressedPostingList,
+    decompressed_chunk: [PointOffsetType; bitpacking::BitPacker4x::BLOCK_LEN],
+    decompressed_chunk_idx: Option<usize>,
+}
+
+impl<'a> CompressedPostingVisitor<'a> {
+    pub fn new(postings: &'a CompressedPostingList) -> CompressedPostingVisitor<'a> {
+        CompressedPostingVisitor {
+            bitpacker: bitpacking::BitPacker4x::new(),
+            postings,
+            decompressed_chunk: [0; bitpacking::BitPacker4x::BLOCK_LEN],
+            decompressed_chunk_idx: None,
+        }
+    }
+
+    pub fn contains(&mut self, val: &PointOffsetType) -> bool {
+        if !self.postings.is_in_postings_range(*val) {
+            return false;
+        }
+
+        // check if current decompressed chunks range contains the value
+        if let Some(decompressed_chunk_idx) = self.decompressed_chunk_idx {
+            // special case: val is larger than every value in the posting list
+            // decompressed_chunk_idx is the last chunk and val is larger than the last value in the chunk
+            if decompressed_chunk_idx == self.postings.chunks.len() - 1
+                && *val > self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1]
+            {
+                return false;
+            }
+
+            // check if value is in decompressed chunk range
+            // check for max value in the chunk only because we already checked for min value while decompression
+            if *val <= self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1] {
+                // check if the value is in the decompressed chunk
+                return self.decompressed_chunk.binary_search(val).is_ok();
+            }
+        }
+
+        // decompressed chunk is not in the range, so we need to decompress another chunk
+        // first, check if there is a chunk that contains the value
+        let chunk_index = match self.postings.find_chunk(val, self.decompressed_chunk_idx) {
+            Some(idx) => idx,
+            None => return false,
+        };
+        // if the value is the initial value of the chunk, we don't need to decompress the chunk
+        if self.postings.chunks[chunk_index].initial == *val {
             return true;
         }
-        self.decompressed_chunk.binary_search(doc_id).is_ok()
+
+        // second, decompress the chunk and check if the value is in the decompressed chunk
+        self.postings
+            .decompress_chunk(&self.bitpacker, chunk_index, &mut self.decompressed_chunk);
+        self.decompressed_chunk_idx = Some(chunk_index);
+
+        // check if the value is in the decompressed chunk
+        self.decompressed_chunk.binary_search(val).is_ok()
     }
 }
 
