@@ -2573,6 +2573,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "is_sorted"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357376465c37db3372ef6a00585d336ed3d0f11d4345eef77ebcb05865392b21"
+
+[[package]]
 name = "issues"
 version = "0.0.0"
 dependencies = [
@@ -4724,6 +4730,7 @@ dependencies = [
  "indexmap 2.0.1",
  "io",
  "io-uring",
+ "is_sorted",
  "itertools 0.12.1",
  "lazy_static",
  "log",
@@ -5989,7 +5996,7 @@ dependencies = [
  "memmap2 0.9.4",
  "rand 0.8.5",
  "rand_distr",
- "rustix 0.37.27",
+ "rustix 0.38.28",
  "serde",
 ]
 
