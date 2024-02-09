@@ -1,6 +1,6 @@
 use common::types::PointOffsetType;
 
-use super::posting_list::{CompressedPostingList, PostingList};
+use super::posting_list::{CompressedPostingList, CompressedPostingVisitor, PostingList};
 
 pub fn intersect_postings_iterator<'a>(
     mut postings: Vec<&'a PostingList>,
@@ -32,10 +32,19 @@ pub fn intersect_compressed_postings_iterator<'a>(
         .unwrap();
     let smallest_posting = postings.remove(smallest_posting_idx);
 
+    let mut posting_visitors = postings
+        .into_iter()
+        .map(CompressedPostingVisitor::new)
+        .collect::<Vec<_>>();
+
     let and_iter = smallest_posting
         .iter()
         .filter(move |doc_id| filter(*doc_id))
-        .filter(move |doc_id| postings.iter().all(|posting| posting.contains(doc_id)));
+        .filter(move |doc_id| {
+            posting_visitors
+                .iter_mut()
+                .all(|posting_visitor| posting_visitor.contains(doc_id))
+        });
 
     Box::new(and_iter)
 }
@@ -66,6 +75,16 @@ mod tests {
 
         let postings = vec![&p1, &p2, &p3];
         let merged = intersect_postings_iterator(postings);
+
+        let res = merged.collect::<Vec<_>>();
+
+        assert_eq!(res, vec![2, 5]);
+
+        let p1_compressed = CompressedPostingList::new(p1);
+        let p2_compressed = CompressedPostingList::new(p2);
+        let p3_compressed = CompressedPostingList::new(p3);
+        let compressed_postings = vec![&p1_compressed, &p2_compressed, &p3_compressed];
+        let merged = intersect_compressed_postings_iterator(compressed_postings, |_| true);
 
         let res = merged.collect::<Vec<_>>();
 
