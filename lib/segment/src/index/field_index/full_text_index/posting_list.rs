@@ -263,20 +263,21 @@ impl<'a> CompressedPostingVisitor<'a> {
         }
 
         // check if current decompressed chunks range contains the value
-        if let Some(decompressed_chunk_idx) = self.decompressed_chunk_idx {
-            // special case: val is larger than every value in the posting list
-            // decompressed_chunk_idx is the last chunk and val is larger than the last value in the chunk
-            if decompressed_chunk_idx == self.postings.chunks.len() - 1
-                && *val > self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1]
-            {
-                return false;
-            }
-
+        if self.decompressed_chunk_idx.is_some() {
             // check if value is in decompressed chunk range
             // check for max value in the chunk only because we already checked for min value while decompression
-            if *val <= self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1] {
-                // check if the value is in the decompressed chunk
-                return self.decompressed_chunk.binary_search(val).is_ok();
+            let last_decompressed =
+                &self.decompressed_chunk[bitpacking::BitPacker4x::BLOCK_LEN - 1];
+            match val.cmp(last_decompressed) {
+                std::cmp::Ordering::Less => {
+                    // value is less than the last decompressed value
+                    return self.decompressed_chunk.binary_search(val).is_ok();
+                }
+                std::cmp::Ordering::Equal => {
+                    // value is equal to the last decompressed value
+                    return true;
+                }
+                std::cmp::Ordering::Greater => {}
             }
         }
 
