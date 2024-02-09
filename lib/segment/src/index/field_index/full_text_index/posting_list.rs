@@ -232,6 +232,8 @@ pub struct CompressedPostingVisitor<'a> {
     postings: &'a CompressedPostingList,
     decompressed_chunk: [PointOffsetType; bitpacking::BitPacker4x::BLOCK_LEN],
     decompressed_chunk_idx: Option<usize>,
+    #[cfg(test)]
+    last_checked: Option<PointOffsetType>,
 }
 
 impl<'a> CompressedPostingVisitor<'a> {
@@ -241,10 +243,21 @@ impl<'a> CompressedPostingVisitor<'a> {
             postings,
             decompressed_chunk: [0; bitpacking::BitPacker4x::BLOCK_LEN],
             decompressed_chunk_idx: None,
+            #[cfg(test)]
+            last_checked: None,
         }
     }
 
     pub fn contains(&mut self, val: &PointOffsetType) -> bool {
+        #[cfg(test)]
+        {
+            // check if the checked values are in the increasing order
+            if let Some(last_checked) = self.last_checked {
+                assert!(*val > last_checked);
+            }
+            self.last_checked = Some(*val);
+        }
+
         if !self.postings.is_in_postings_range(*val) {
             return false;
         }
@@ -293,7 +306,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compression() {
+    fn test_compressed_posting_visitor() {
         let mut chunk: Vec<u32> = Vec::new();
         for i in 0..bitpacking::BitPacker4x::BLOCK_LEN as u32 {
             chunk.push(1000 + 2 * i);
