@@ -107,7 +107,7 @@ struct Key {
 }
 
 impl Key {
-    pub fn from_tag(clock_tag: &ClockTag) -> Self {
+    fn from_tag(clock_tag: &ClockTag) -> Self {
         Self {
             peer_id: clock_tag.peer_id,
             clock_id: clock_tag.clock_id,
